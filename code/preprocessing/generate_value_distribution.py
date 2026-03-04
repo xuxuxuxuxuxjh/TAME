@@ -3,8 +3,17 @@
 
 
 import sys
-reload(sys)
-sys.setdefaultencoding('utf8')
+try:
+    # python3
+    from importlib import reload
+except Exception:
+    pass
+try:
+    # python2 compatibility (no-op on python3)
+    reload(sys)
+    sys.setdefaultencoding('utf8')
+except Exception:
+    pass
 
 import os
 import sys

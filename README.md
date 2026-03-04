@@ -97,6 +97,23 @@ python generate_sepsis_variables.py --dataset MIMIC
 python generate_value_distribution.py --dataset MIMIC
 ```
 
+## (New) Preprocess an already-extracted hourly sepsis dataset (e.g., MIMIC-IV export)
+If you already have an exported hourly time series file named `sepsis_timeseries_hourly.csv`
+(with columns like `stay_id`, `hour`, vitals/labs/SOFA-related variables), you can preprocess
+it directly into TAME's per-stay `train_groundtruth/` and `train_with_missing/` format.
+
+Put the export anywhere (it does **not** need to be under `TAME/data/`), then run:
+
+```
+cd code/preprocessing
+python generate_sepsis_variables.py --dataset MIMIC --mimic-dir /path/to/export_folder_containing_sepsis_timeseries_hourly.csv
+python generate_value_distribution.py --dataset MIMIC
+```
+
+Notes:
+- This mode auto-detects `sepsis_timeseries_hourly.csv` under `--mimic-dir` and bypasses the legacy MIMIC-III pivoted-file pipeline.
+- The script will also create empty per-stay `.json` files and an empty `ehr_list.json` so the TAME dataloader can run even without multi-modal EHR inputs.
+
 # TAME
 
 1. Train TAME model.

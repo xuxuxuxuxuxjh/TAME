@@ -115,6 +115,9 @@ def mkdir(d):
     path = d.split('/')
     for i in range(len(path)):
         d = '/'.join(path[:i+1])
+        if d == '':
+            # Support absolute paths like "/a/b" where split('/') starts with ''.
+            continue
         if not os.path.exists(d):
             os.mkdir(d)
 

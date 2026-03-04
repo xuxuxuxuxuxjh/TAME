@@ -1,0 +1,40 @@
+Host: a0134.ten.osc.edu
+CUDA_VISIBLE_DEVICES=0
+python 3.10.19 | packaged by conda-forge | (main, Jan 26 2026, 23:45:08) [GCC 14.3.0]
+torch 2.5.1+cu121
+torch.version.cuda 12.1
+cuda_available True
+ngpu 1
+epochs, 30
+loss artifacts dir: /users/PCON0023/xuxuxuxuxu/TAME/result/MIMIC/loss_curve/tame_3774511
+Traceback (most recent call last):
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/sympy/__init__.py", line 22, in <module>
+    import mpmath
+ModuleNotFoundError: No module named 'mpmath'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/users/PCON0023/xuxuxuxuxu/TAME/code/TAME/main.py", line 347, in <module>
+    main()
+  File "/users/PCON0023/xuxuxuxuxu/TAME/code/TAME/main.py", line 319, in main
+    optimizer = torch.optim.Adam(parameters_all, args.lr)
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/optim/adam.py", line 78, in __init__
+    super().__init__(params, defaults)
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/optim/optimizer.py", line 371, in __init__
+    self.add_param_group(cast(dict, param_group))
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/_compile.py", line 27, in inner
+    import torch._dynamo
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/_dynamo/__init__.py", line 3, in <module>
+    from . import convert_frame, eval_frame, resume_execution
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/_dynamo/convert_frame.py", line 31, in <module>
+    from torch._dynamo.utils import CompileTimeInstructionCounter
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/_dynamo/utils.py", line 62, in <module>
+    import torch.fx.experimental.symbolic_shapes
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py", line 65, in <module>
+    from torch.utils._sympy.functions import (
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/torch/utils/_sympy/functions.py", line 7, in <module>
+    import sympy
+  File "/users/PCON0023/xuxuxuxuxu/.conda/envs/postgre/lib/python3.10/site-packages/sympy/__init__.py", line 24, in <module>
+    raise ImportError("SymPy now depends on mpmath as an external library. "
+ImportError: SymPy now depends on mpmath as an external library. See https://docs.sympy.org/latest/install.html#mpmath for more information.

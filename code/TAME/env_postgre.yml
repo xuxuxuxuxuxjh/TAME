@@ -1,0 +1,25 @@
+name: postgre
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  # Fix common HPC runtime mismatch (GLIBCXX_* not found) by shipping newer C++ runtime in env.
+  - libgcc-ng>=12
+  - libstdcxx-ng>=12
+  - numpy
+  - tqdm
+  - pandas
+  - scikit-learn
+  # Install CUDA-enabled PyTorch for A100 (works on compute nodes with NVIDIA driver).
+  # If your cluster CUDA/driver stack requires a different version, adjust pytorch-cuda.
+  - pytorch
+  - pytorch-cuda=12.1
+  - torchvision
+  - torchaudio
+  - pip:
+      # optional quality-of-life
+      - packaging
+

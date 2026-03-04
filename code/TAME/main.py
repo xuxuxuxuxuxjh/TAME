@@ -3,14 +3,28 @@
 
 
 import sys
-reload(sys)
-sys.setdefaultencoding('utf8')
+try:
+    # python3 compatibility
+    from importlib import reload  # noqa: F401
+except Exception:
+    pass
+try:
+    # python2 compatibility (no-op on python3)
+    reload(sys)  # type: ignore[name-defined]
+    sys.setdefaultencoding('utf8')  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 import os
 import sys
 import time
+import datetime
 import numpy as np
-from sklearn import metrics
+try:
+    # optional; not required for imputation training
+    from sklearn import metrics  # noqa: F401
+except Exception:
+    pass
 import random
 import json
 from glob import glob
@@ -19,7 +33,6 @@ from tqdm import tqdm
 
 
 import torch
-from torch.autograd import Variable
 from torch.backends import cudnn
 from torch.nn import DataParallel
 from torch.utils.data import DataLoader
@@ -44,14 +57,63 @@ if args.model != 'tame':
     args.use_ta = 0
 if args.use_ve == 0:
     args.value_embedding = 'no'
-print 'epochs,', args.epochs
+print('epochs,', args.epochs)
+
+def _safe_makedirs(path: str) -> None:
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+
+def _write_loss_csv(csv_file: str, rows):
+    """
+    rows: iterable of dicts with keys: epoch, train_loss, valid_loss
+    """
+    header = "epoch,train_loss,valid_loss\n"
+    with open(csv_file, "w") as f:
+        f.write(header)
+        for r in rows:
+            e = r.get("epoch", "")
+            tl = r.get("train_loss", "")
+            vl = r.get("valid_loss", "")
+            f.write(f"{e},{tl},{vl}\n")
+
+def _try_plot_loss_png(png_file: str, rows):
+    """
+    Best-effort plotting; if matplotlib is unavailable, do not fail training.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        print("WARN: matplotlib not available; skipping loss plot:", e)
+        return
+
+    xs = [r["epoch"] for r in rows]
+    ys_t = [r.get("train_loss") for r in rows]
+    ys_v = [r.get("valid_loss") for r in rows]
+
+    plt.figure(figsize=(8, 4.5))
+    if any(v is not None for v in ys_t):
+        plt.plot(xs, ys_t, label="train")
+    if any(v is not None for v in ys_v):
+        plt.plot(xs, ys_v, label="valid")
+    plt.xlabel("epoch")
+    plt.ylabel("loss")
+    plt.title("TAME loss curve")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(png_file, dpi=160)
+    plt.close()
 
 def _cuda(tensor, is_tensor=True):
     if args.gpu:
-        if is_tensor:
-            return tensor.cuda(async=True)
-        else:
+        # `async=True` was removed; use non_blocking for pinned-memory transfers.
+        if hasattr(tensor, 'cuda'):
+            if is_tensor:
+                return tensor.cuda(non_blocking=True)
             return tensor.cuda()
+        return tensor
     else:
         return tensor
 
@@ -74,14 +136,13 @@ def index_value(data):
     map data to index and value
     '''
     if args.use_ve == 0:
-        data = Variable(_cuda(data)) # [bs, 250]
-        return data
-    data = data.numpy()
-    index = data / (args.split_num + 1)
-    value = data % (args.split_num + 1)
-    index = Variable(_cuda(torch.from_numpy(index.astype(np.int64))))
-    value = Variable(_cuda(torch.from_numpy(value.astype(np.int64))))
-    return [index, value]
+        return _cuda(data)  # [bs, n_visit, n_feat]
+    data_np = data.detach().cpu().numpy()
+    index = data_np // (args.split_num + 1)
+    value = data_np % (args.split_num + 1)
+    index_t = _cuda(torch.from_numpy(index.astype(np.int64)))
+    value_t = _cuda(torch.from_numpy(value.astype(np.int64)))
+    return [index_t, value_t]
 
 def train_eval(data_loader, net, loss, epoch, optimizer, best_metric, phase='train'):
     print(phase)
@@ -102,13 +163,13 @@ def train_eval(data_loader, net, loss, epoch, optimizer, best_metric, phase='tra
             pre_input, pre_time, post_input, post_time, dd_list = data_list [4:9]
             pre_input = index_value(pre_input)
             post_input = index_value(post_input)
-            pre_time = Variable(_cuda(pre_time))
-            post_time = Variable(_cuda(post_time))
-            dd_list = Variable(_cuda(dd_list))
+            pre_time = _cuda(pre_time)
+            post_time = _cuda(post_time)
+            dd_list = _cuda(dd_list)
             neib = [pre_input, pre_time, post_input, post_time]
 
-        label = Variable(_cuda(label)) # [bs, 1]
-        mask = Variable(_cuda(mask)) # [bs, 1]
+        label = _cuda(label)
+        mask = _cuda(mask)
         if args.dataset in ['MIMIC'] and args.model == 'tame' and args.use_mm:
             output = net(data, neib=neib, dd=dd_list, mask=mask) # [bs, 1]
         elif args.model == 'tame' and args.use_ta:
@@ -117,9 +178,15 @@ def train_eval(data_loader, net, loss, epoch, optimizer, best_metric, phase='tra
             output = net(data, mask=mask) # [bs, 1]
 
         if phase == 'test':
-            folder = os.path.join(args.result_dir, args.dataset, 'imputation_result')
-            output_data = output.data.cpu().numpy()
-            mask_data = mask.data.cpu().numpy().max(2)
+            # Write outputs to a dedicated directory (never overwrite original CSVs).
+            folder = args.impute_dir
+            if not folder:
+                run_id = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                folder = os.path.join(args.result_dir, args.dataset, 'imputation_result', run_id)
+            if not os.path.exists(folder):
+                os.makedirs(folder)
+            output_data = output.detach().cpu().numpy()
+            mask_data = mask.detach().cpu().numpy().max(2)
             for (icu_data, icu_mask, icu_file) in zip(output_data, mask_data, files):
                 icu_file = os.path.join(folder, icu_file.split('/')[-1].replace('.csv', '.npy'))
                 np.save(icu_file, icu_data)
@@ -155,10 +222,10 @@ def train_eval(data_loader, net, loss, epoch, optimizer, best_metric, phase='tra
 
 
         loss_output = loss(output, label, mask)
-        pred_list.append(output.data.cpu().numpy())
-        loss_list.append(loss_output.data.cpu().numpy())
-        label_list.append(label.data.cpu().numpy())
-        mask_list.append(mask.data.cpu().numpy())
+        pred_list.append(output.detach().cpu().numpy())
+        loss_list.append(loss_output.detach().cpu().numpy())
+        label_list.append(label.detach().cpu().numpy())
+        mask_list.append(mask.detach().cpu().numpy())
 
         if phase == 'train':
             optimizer.zero_grad()
@@ -172,7 +239,7 @@ def train_eval(data_loader, net, loss, epoch, optimizer, best_metric, phase='tra
     metric_list = function.compute_nRMSE(pred, label, mask)
     avg_loss = np.mean(loss_list)
 
-    print('\nTrain Epoch %03d (lr %.5f)' % (epoch, lr))
+    print('\n%s Epoch %03d (lr %.5f)' % (phase, epoch, lr))
     print('loss: {:3.4f} \t'.format(avg_loss))
     print('metric: {:s}'.format('\t'.join(['{:3.4f}'.format(m) for m in metric_list[:2]])))
 
@@ -180,19 +247,44 @@ def train_eval(data_loader, net, loss, epoch, optimizer, best_metric, phase='tra
     metric = metric_list[0]
     if phase == 'valid' and (best_metric[0] == 0 or best_metric[0] > metric):
         best_metric = [metric, epoch]
-        function.save_model({'args': args, 'model': net, 'epoch':epoch, 'best_metric': best_metric})
+        # Save best checkpoint into a run-specific folder (no overwrite across runs),
+        # and also save to the legacy global folder for compatibility with existing scripts.
+        run_folder = getattr(args, "ckpt_dir", None)
+        global_folder = getattr(args, "ckpt_global_dir", None)
+
+        if run_folder:
+            _safe_makedirs(run_folder)
+            function.save_model(
+                {'args': args, 'model': net, 'epoch': epoch, 'best_metric': best_metric},
+                name='best.ckpt',
+                folder=run_folder,
+            )
+            print("saved best.ckpt to:", os.path.join(run_folder, 'best.ckpt'))
+
+        # Always keep a global best.ckpt (may be overwritten by subsequent runs)
+        if global_folder:
+            _safe_makedirs(global_folder)
+            function.save_model(
+                {'args': args, 'model': net, 'epoch': epoch, 'best_metric': best_metric},
+                name='best.ckpt',
+                folder=global_folder,
+            )
+            print("updated global best.ckpt:", os.path.join(global_folder, 'best.ckpt'))
+        else:
+            # fallback to original default behavior
+            function.save_model({'args': args, 'model': net, 'epoch': epoch, 'best_metric': best_metric})
     metric_list = metric_list[2:]
     name_list = args.name_list
     assert len(metric_list) == len(name_list) * 2
     s = args.model
-    for i in range(len(metric_list)/2):
+    for i in range(len(metric_list)//2):
         name = name_list[i] + ''.join(['.' for _ in range(40 - len(name_list[i]))])
         print('{:s}{:3.4f}......{:3.4f}'.format(name, metric_list[2*i], metric_list[2*i+1]))
         s = s+ '  {:3.4f}'.format(metric_list[2*i])
     if phase != 'train':
         print('\t\t\t\t best epoch: {:d}     best MSE on missing value: {:3.4f} \t'.format(best_metric[1], best_metric[0])) 
         print(s)
-    return best_metric
+    return best_metric, float(avg_loss)
 
 
 def main():
@@ -214,9 +306,10 @@ def main():
     train_dataset = data_loader.DataBowl(args, train_files, phase=train_phase)
     valid_dataset = data_loader.DataBowl(args, valid_files, phase=valid_phase)
     test_dataset = data_loader.DataBowl(args, test_files, phase=test_phase)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=train_shuffle, num_workers=args.workers, pin_memory=True)
-    valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=True)
+    pin = True if args.gpu else False
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=train_shuffle, num_workers=args.workers, pin_memory=pin)
+    valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=pin)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=pin)
     args.vocab_size = (args.output_size + 2) * (1 + args.split_num) + 5
 
     if args.model == 'tame':
@@ -239,20 +332,62 @@ def main():
     for p in net.parameters():
         parameters_all.append(p)
 
-    optimizer = torch.optim.Adam(parameters_all, args.lr)
-
     if args.phase == 'train':
+        # Where to save loss curve artifacts
+        run_id = os.environ.get("SLURM_JOB_ID") or datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        loss_dir = os.path.join(args.result_dir, args.dataset, "loss_curve", f"{args.model}_{run_id}")
+        _safe_makedirs(loss_dir)
+        loss_csv = os.path.join(loss_dir, "loss.csv")
+        loss_png = os.path.join(loss_dir, "loss.png")
+        print("loss artifacts dir:", loss_dir)
+
+        # Where to save run-specific checkpoints (avoid overwriting between runs)
+        args.ckpt_dir = os.path.join(args.result_dir, args.dataset, "checkpoints", f"{args.model}_{run_id}")
+        # Also keep legacy/global ckpt location for backward compatibility
+        args.ckpt_global_dir = os.path.join(args.data_dir, args.dataset, "models")
+        _safe_makedirs(args.ckpt_dir)
+        _safe_makedirs(args.ckpt_global_dir)
+        print("ckpt dir (run)     :", args.ckpt_dir)
+        print("ckpt dir (global)  :", args.ckpt_global_dir)
+
+        try:
+            optimizer = torch.optim.Adam(parameters_all, args.lr)
+        except ImportError as e:
+            msg = str(e)
+            # PyTorch 2.5+ may import torch._dynamo (which imports sympy) during optimizer creation.
+            # If sympy is present but its dependency mpmath is missing, the error is confusing.
+            if ("mpmath" in msg) or ("SymPy now depends on mpmath" in msg):
+                raise SystemExit(
+                    "ERROR: Missing Python package 'mpmath' required by sympy (imported by PyTorch torch._dynamo).\n"
+                    "Fix once in your conda env, e.g.:\n"
+                    "  conda activate postgre\n"
+                    "  conda install -c conda-forge -y mpmath\n"
+                    "or:\n"
+                    "  pip install mpmath\n"
+                ) from None
+            raise
+        loss_rows = []
         for epoch in range(start_epoch, args.epochs):
             print('start epoch :', epoch)
-            train_eval(train_loader, net, loss, epoch, optimizer, best_metric)
-            best_metric = train_eval(valid_loader, net, loss, epoch, optimizer, best_metric, phase='valid')
-        print 'best metric', best_metric
+            best_metric, train_loss = train_eval(train_loader, net, loss, epoch, optimizer, best_metric, phase='train')
+            best_metric, valid_loss = train_eval(valid_loader, net, loss, epoch, optimizer, best_metric, phase='valid')
+
+            loss_rows.append({"epoch": epoch, "train_loss": train_loss, "valid_loss": valid_loss})
+            # Write CSV every epoch (cheap + robust), and plot best-effort.
+            _write_loss_csv(loss_csv, loss_rows)
+            _try_plot_loss_png(loss_png, loss_rows)
+        print('best metric', best_metric)
 
     elif args.phase == 'test':
-        folder = os.path.join(args.result_dir, args.dataset, 'imputation_result')
-        os.system('rm -r ' + folder)
-        os.system('mkdir ' + folder)
+        # Set output folder (do not delete anything).
+        if not args.impute_dir:
+            run_id = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            args.impute_dir = os.path.join(args.result_dir, args.dataset, 'imputation_result', run_id)
+        if not os.path.exists(args.impute_dir):
+            os.makedirs(args.impute_dir)
+        print('imputation output dir:', args.impute_dir)
 
+        optimizer = None
         train_eval(train_loader, net, loss, 0, optimizer, best_metric, 'test')
         train_eval(valid_loader, net, loss, 0, optimizer, best_metric, 'test')
         train_eval(test_loader, net, loss, 0, optimizer, best_metric, 'test')

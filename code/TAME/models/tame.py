@@ -15,7 +15,7 @@ sys.path.append('../tools')
 import parse, py_op
 
 def value_embedding_data(d = 512, split = 200):
-    vec = np.array([np.arange(split) * i for i in range(d/2)], dtype=np.float32).transpose()
+    vec = np.array([np.arange(split) * i for i in range(d//2)], dtype=np.float32).transpose()
     vec = vec / vec.max() 
     embedding = np.concatenate((np.sin(vec), np.cos(vec)), 1)
     embedding[0, :d] = 0

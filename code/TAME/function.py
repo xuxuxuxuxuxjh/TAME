@@ -4,7 +4,10 @@ import numpy as np
 
 import os
 import torch
-from sklearn import metrics
+try:
+    from sklearn import metrics  # optional dependency
+except Exception:
+    metrics = None
 
 
 def compute_nRMSE(pred, label, mask):
@@ -104,5 +107,7 @@ def load_model(p_dict, model_file):
     p_dict['model'].load_state_dict(all_dict['state_dict'])
 
 def compute_auc(labels, preds):
+    if metrics is None:
+        raise ImportError('scikit-learn is required for compute_auc. Install with: pip install scikit-learn')
     fpr, tpr, thr = metrics.roc_curve(labels, preds)
     return metrics.auc(fpr, tpr)

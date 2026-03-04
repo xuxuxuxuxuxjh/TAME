@@ -178,7 +178,7 @@ class DataBowl(Dataset):
                 valid = valid_list[:, i]
                 indices = np.where(valid > 0)[0]
                 np.random.shuffle(indices)
-                if len(indices>2):
+                if len(indices) > 2:
                     input_data[indices[0]][i] = 'NA'
             input_data = [','.join(line) for line in input_data]
 

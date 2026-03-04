@@ -185,6 +185,12 @@ parser.add_argument('--resume',
         metavar='S',
         help='start from checkpoints')
 parser.add_argument(
+        '--impute-dir',
+        default='',
+        type=str,
+        help='(phase=test) output directory for imputation results; if empty, a timestamped folder under <result-dir>/<dataset>/imputation_result/ will be created'
+        )
+parser.add_argument(
         '--compute-weight',
         default=0,
         type=int,
